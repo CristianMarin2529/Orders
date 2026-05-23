@@ -1,20 +1,14 @@
 spring:
   application:
     name: Orders
-  ## Database Configuration
   datasource:
     url: jdbc:mysql://localhost:3307/orders
     username: root
     password: Unir1234
-
   jpa:
-    show-sql: true
     hibernate:
       ddl-auto: validate
     database-platform: org.hibernate.dialect.MySQLDialect
-    properties:
-      hibernate:
-        format_sql: true
 
 server:
   port: 8081
@@ -22,8 +16,6 @@ server:
 logging:
   level:
     org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-    org.springframework.data.jpa: DEBUG
 
 catalogue:
   base-url: http://localhost:8085

@@ -2,12 +2,16 @@ package com.unir.Orders.service;
 
 import com.unir.Orders.client.CatalogueClient;
 import com.unir.Orders.client.dto.CatalogueBookResponse;
+import com.unir.Orders.client.dto.StockAdjustmentRequestDto;
 import com.unir.Orders.controller.dto.CreateOrderRequest;
 import com.unir.Orders.controller.dto.OrderResponse;
+import com.unir.Orders.controller.dto.OrderItemResponse;
 import com.unir.Orders.entity.Order;
 import com.unir.Orders.entity.OrderItem;
+import com.unir.Orders.entity.OrderSequence;
 import com.unir.Orders.repository.OrderRepository;
 import com.unir.Orders.repository.OrderItemRepository;
+import com.unir.Orders.repository.OrderSequenceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -20,10 +24,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * SERVICE - Contiene la lógica de negocio de órdenes
+ * SERVICE - Contiene la lógica de negocio de orders
  */
 @Slf4j
 @Service
@@ -33,6 +36,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final CatalogueClient catalogueClient;
+    private final OrderSequenceRepository orderSequenceRepository;
 
 
     /**
@@ -73,12 +77,12 @@ public class OrderService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La cantidad debe ser mayor a cero");
             }
 
-            // Llamada a microservicio Catalogue (Real): GET /books/{bookId}
-            // BookId puede ser Long o Integer, se convierte automáticamente
+            // Llamada a microservicio Catalogue
+
             CatalogueBookResponse book = catalogueClient.getBookById(item.getBookId().intValue())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Libro no encontrado en catálogo"));
 
-            // Validar que el libro esté activo/disponible
+            // Valida que el libro esté activo/disponible
             if (!Boolean.TRUE.equals(book.getIsActive())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "El libro no está disponible");
             }
@@ -92,23 +96,19 @@ public class OrderService {
             BigDecimal subtotal = book.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
             total = total.add(subtotal);
 
-            // NUEVO: Guardar la información del libro validado para después
             validatedBooks.add(book);
         }
 
-        // Crear entity con los datos validados
         Order order = new Order(
                 generateOrderId(),
                 request.getUserId(),
-                LocalDate.now(), // Fecha actual del servidor
+                LocalDate.now(),
                 total,
-                "Procesando" // Estado inicial
+                "Procesando"
         );
 
-        // Guardar en BD y retornar como DTO
         Order savedOrder = orderRepository.save(order);
 
-        // NUEVO: Guardar detalles de cada item en order_items
         List<CreateOrderRequest.Item> requestItems = request.getItems();
         for (int i = 0; i < requestItems.size(); i++) {
             CreateOrderRequest.Item requestItem = requestItems.get(i);
@@ -119,7 +119,7 @@ public class OrderService {
 
             // Crear y guardar OrderItem
             OrderItem orderItem = new OrderItem(
-                    null,  // id será autogenerado por BD
+                    null,
                     savedOrder.getId(),
                     book.getId(),
                     book.getTitle(),
@@ -127,21 +127,41 @@ public class OrderService {
                     requestItem.getQuantity(),
                     book.getPrice(),
                     subtotal,
-                    LocalDateTime.now()  // fechaCreacion
+                    LocalDateTime.now()
             );
 
             orderItemRepository.save(orderItem);
 
-            System.out.println("✓ Item guardado: Orden " + savedOrder.getId() +
-                    " - Libro: " + book.getTitle() +
-                    " - Cantidad: " + requestItem.getQuantity());
+            log.info("Item guardado: Orden {} - Libro: {} - Cantidad: {}",
+                    savedOrder.getId(), book.getTitle(), requestItem.getQuantity());
+        }
+
+        // Descontar stock en Catalogue
+        try {
+            StockAdjustmentRequestDto stockRequest = new StockAdjustmentRequestDto();
+            List<StockAdjustmentRequestDto.BookQuantity> bookQuantities = new ArrayList<>();
+
+            for (CreateOrderRequest.Item item : requestItems) {
+                bookQuantities.add(new StockAdjustmentRequestDto.BookQuantity(item.getBookId().intValue(), item.getQuantity()));
+            }
+
+            stockRequest.setBooks(bookQuantities);
+            catalogueClient.decreaseStock(stockRequest);
+            log.info("Stock descontado en Catalogue para orden: {}", savedOrder.getId());
+
+        } catch (Exception ex) {
+            log.error("Error descontando stock en Catalogue para orden {}: {}", savedOrder.getId(), ex.getMessage());
+            // Rollback: eliminar la orden si falla el descuento de stock
+            orderRepository.deleteById(savedOrder.getId());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "No se pudo procesar el descuento de stock. Orden cancelada.");
         }
 
         return toResponse(savedOrder);
     }
 
     private OrderResponse toResponse(Order order) {
-        // Formatear fecha: LocalDate -> String "dd/MM/yyyy"
+
         String fechaFormateada = order.getFecha().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
 
         return new OrderResponse(
@@ -153,9 +173,63 @@ public class OrderService {
         );
     }
 
-    // Genera ID único para orden Formato: PED-2026-XXX donde XXX es random 100-999
+    // Genera ID único para orden Formato: PED-YYYY-XXX con consecutivo
 
     private String generateOrderId() {
-        return "PED-2026-" + ThreadLocalRandom.current().nextInt(100, 1000);
+        int year = LocalDate.now().getYear();
+        long sequence = orderSequenceRepository.save(new OrderSequence()).getId();
+        return String.format("PED-%d-%03d", year, sequence);
+    }
+
+    // Obtiene todos los items (detalles) de una orden específica
+
+    public List<OrderItemResponse> getOrderItems(String orderId) {
+        log.info("Obteniendo items para orden: {}", orderId);
+
+        // Verificar que la orden existe
+        orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada"));
+
+        List<OrderItemResponse> items = orderItemRepository.findByOrderId(orderId)
+                .stream()
+                .map(this::toItemResponse)
+                .toList();
+
+        log.debug("Se encontraron {} items para orden {}", items.size(), orderId);
+        return items;
+    }
+
+    //Obtiene un item específico de una orden
+
+    public OrderItemResponse getOrderItem(String orderId, Long itemId) {
+        log.info("Obteniendo item {} de orden: {}", itemId, orderId);
+
+        // Verificar que la orden existe
+        orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada"));
+
+        OrderItem item = orderItemRepository.findById(itemId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item no encontrado"));
+
+        // Validar que el item pertenece a la orden
+        if (!item.getOrderId().equals(orderId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "El item no pertenece a esta orden");
+        }
+
+        return toItemResponse(item);
+    }
+
+    private OrderItemResponse toItemResponse(OrderItem item) {
+        return new OrderItemResponse(
+                item.getId(),
+                item.getOrderId(),
+                item.getBookId(),
+                item.getBookTitle(),
+                item.getBookAuthor(),
+                item.getQuantity(),
+                item.getUnitPrice(),
+                item.getSubtotal(),
+                item.getFechaCreacion()
+        );
     }
 }

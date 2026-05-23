@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS order_items (
                                            INDEX idx_order_items_book_id (book_id)
 );
 
+-- Secuencia para IDs consecutivos de órdenes
+CREATE TABLE IF NOT EXISTS order_sequence (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY
+);
+
 -- Insertar 20 registros de ejemplo
 INSERT IGNORE INTO orders (id, user_id, fecha, total, estado) VALUES
                                                                   ('PED-2026-001', 'user-1', '2026-01-05', 60000.00, 'Entregado'),
@@ -71,3 +76,6 @@ INSERT IGNORE INTO order_items (order_id, book_id, book_title, book_author, quan
                                                                                                                 ('PED-2026-002', 2, 'Rayuela', 'Julio Cortazar', 1, 45000.00, 45000.00),
                                                                                                                 ('PED-2026-108', 1, 'Cien Anos de Soledad', 'Gabriel Garcia Marquez', 1, 25000.00, 25000.00),
                                                                                                                 ('PED-2026-108', 2, 'Rayuela', 'Julio Cortazar', 1, 35000.00, 35000.00);
+
+-- Ajustar la secuencia para evitar colisiones con IDs ya creados
+ALTER TABLE order_sequence AUTO_INCREMENT = 150; # Para asegurar que no colisione con los creados simulados
