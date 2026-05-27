@@ -8,10 +8,8 @@ import com.unir.Orders.controller.dto.OrderResponse;
 import com.unir.Orders.controller.dto.OrderItemResponse;
 import com.unir.Orders.entity.Order;
 import com.unir.Orders.entity.OrderItem;
-import com.unir.Orders.entity.OrderSequence;
 import com.unir.Orders.repository.OrderRepository;
 import com.unir.Orders.repository.OrderItemRepository;
-import com.unir.Orders.repository.OrderSequenceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -24,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * SERVICE - Contiene la lógica de negocio de orders
@@ -36,7 +35,6 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final CatalogueClient catalogueClient;
-    private final OrderSequenceRepository orderSequenceRepository;
 
 
     /**
@@ -176,9 +174,17 @@ public class OrderService {
     // Genera ID único para orden Formato: PED-YYYY-XXX con consecutivo
 
     private String generateOrderId() {
+        // Genera ID único usando UUID (8 caracteres hexadecimales)
+        // El timestamp se registra automáticamente en la columna fecha_creacion
+        // Formato: PED-2026-A1B2C3D4
+        String uuidPart = UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                .substring(0, 8)
+                .toUpperCase();
+
         int year = LocalDate.now().getYear();
-        long sequence = orderSequenceRepository.save(new OrderSequence()).getId();
-        return String.format("PED-%d-%03d", year, sequence);
+        return String.format("PED-%d-%s", year, uuidPart);
     }
 
     // Obtiene todos los items (detalles) de una orden específica

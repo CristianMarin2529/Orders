@@ -32,13 +32,11 @@ Orders Microservice (Puerto 8081)
 │
 ├── repository/ (Acceso a datos)
 │   ├── OrderRepository              (CRUD de órdenes)
-│   ├── OrderItemRepository          (CRUD de items de orden)
-│   └── OrderSequenceRepository      (Generador de IDs secuenciales)
+│   └── OrderItemRepository          (CRUD de items de orden)
 │
 ├── entity/ (Modelos JPA)
 │   ├── Order                        (Tabla: orders)
-│   ├── OrderItem                    (Tabla: order_items)
-│   └── OrderSequence                (Tabla: order_sequence)
+│   └── OrderItem                    (Tabla: order_items)
 │
 ├── client/ (HTTP Client)
 │   ├── CatalogueClient              (Interface)
@@ -380,22 +378,6 @@ INSERT INTO order_items VALUES
    1, 10000.00, 10000.00, NOW());
 ```
 
---
-
-### Tabla: `order_sequence`
-Genera IDs secuenciales para mantener numeración consecutiva de órdenes.
-
-```sql
-CREATE TABLE order_sequence (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY
-);
-
-ALTER TABLE order_sequence AUTO_INCREMENT = 150;
-```
-
-**Propósito**: Generar números consecutivos ej: PED-2026-001, PED-2026-002, etc.  
-**Formato**: `PED-{AÑO}-{SECUENCIA_3_DÍGITOS}`
-
 ---
 
 ## 🗂️ Diagrama de Relaciones
@@ -423,14 +405,8 @@ ALTER TABLE order_sequence AUTO_INCREMENT = 150;
                 │ book_author       │
                 │ quantity          │
                 │ unit_price        │
-                │ subtotal          │
-                └───────────────────┘
-
-┌─────────────────────┐
-│  order_sequence     │
-├─────────────────────┤
-│ id (AUTO_INCREMENT) │ → Genera secuencias para PED-2026-XXX
-└─────────────────────┘
+                                                                                                                │ subtotal          │
+                                                                                                                └───────────────────┘
 ```
 
 ---
